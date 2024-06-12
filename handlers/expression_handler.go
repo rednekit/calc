@@ -1,45 +1,37 @@
-package handlers
+﻿package handlers
 
 import (
-    "encoding/json"
     "net/http"
     "strconv"
-
-    "your-module-name/models"
-    "your-module-name/storage"
+    "calc/mux-main"
+    "calc/models"
+    "calc/utils"
+    "calc/storage"
 )
 
-// GetExpressions возвращает список арифметических выражений.
-func GetExpressions(w http.ResponseWriter, r *http.Request) {
-    expressions := storage.GetExpressions() // Получаем список выражений из хранилища
 
-    // Формируем ответ
-    response := map[string]interface{}{"expressions": expressions}
-    json.NewEncoder(w).Encode(response)
+type ExpressionHandler struct {
+    Storage *storage.Storage
 }
 
-// GetExpressionByID возвращает арифметическое выражение по его идентификатору.
-func GetExpressionByID(w http.ResponseWriter, r *http.Request) {
-    // Получаем идентификатор выражения из URL
-    vars := mux.Vars(r)
-    id, err := strconv.Atoi(vars["id"])
+func (h *ExpressionHandler) GetExpressions(w http.ResponseWriter, r *http.Request) {
+    expressions := h.Storage.GetExpressions()
+    utils.RespondWithJSON(w, http.StatusOK, map[string][]models.Expression{"expression": expressions})
+}
+
+func (h *ExpressionHandler) GetExpressionByID(w http.ResponseWriter, r *http.Request) {
+    params := mux.Vars(r)
+    id, err := strconv.Atoi(params["id"])
     if err != nil {
-        http.Error(w, "Invalid expression ID", http.StatusBadRequest)
+        utils.RespondWithError(w, http.StatusBadRequest, "Invalid expression ID")
         return
     }
 
-    // Получаем выражение по его идентификатору из хранилища
-    expression, err := storage.GetExpressionByID(id)
+    expression, err := h.Storage.GetExpressionByID(id)
     if err != nil {
-        if errors.Is(err, storage.ErrExpressionNotFound) {
-            http.Error(w, "Expression not found", http.StatusNotFound)
-        } else {
-            http.Error(w, "Internal server error", http.StatusInternalServerError)
-        }
+        utils.RespondWithError(w, http.StatusNotFound, "Expression not found")
         return
     }
 
-    // Формируем ответ
-    response := map[string]interface{}{"expression": expression}
-    json.NewEncoder(w).Encode(response)
+    utils.RespondWithJSON(w, http.StatusOK, map[string]models.Expression{"expression": expression})
 }

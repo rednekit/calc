@@ -1,62 +1,104 @@
-package handlers
+﻿package handlers
 
 import (
-    "encoding/json"
-    "net/http"
-    "strconv"
-
-    "your-module-name/models"
-    "your-module-name/storage"
+	"calc/models"
+	"calc/storage"
+	"calc/taskcreator"
+	"calc/utils"
+	"encoding/json"
+	"log"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
 )
 
-// CalculateExpression обрабатывает запрос на вычисление арифметического выражения.
-func CalculateExpression(w http.ResponseWriter, r *http.Request) {
-    var exp models.Expression
-    if err := json.NewDecoder(r.Body).Decode(&exp); err != nil {
-        http.Error(w, err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    // Создаем задачи для агентов на основе выражения
-    tasks := createTasksFromExpression(exp)
-
-    // Отправляем задачи на выполнение агентам
-    for _, task := range tasks {
-        agentQueue <- task
-    }
-
-    // Отправляем ответ клиенту
-    w.WriteHeader(http.StatusCreated)
-    json.NewEncoder(w).Encode(map[string]interface{}{"id": exp.ID})
+type CalculateHandler struct {
+	Storage *storage.Storage
 }
 
-// createTasksFromExpression создает задачи для агентов на основе арифметического выражения.
-func createTasksFromExpression(exp models.Expression) []models.Task {
-    // Здесь нужно добавить код для разбора выражения и создания задач для агентов
-}
+func (h *CalculateHandler) CalculateExpression(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Expression string `json:"expression"`
+	}
 
-// GetExpressionByID возвращает арифметическое выражение по его идентификатору.
-func GetExpressionByID(w http.ResponseWriter, r *http.Request) {
-    // Получаем идентификатор выражения из URL
-    vars := mux.Vars(r)
-    id, err := strconv.Atoi(vars["id"])
-    if err != nil {
-        http.Error(w, "Invalid expression ID", http.StatusBadRequest)
-        return
-    }
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.RespondWithError(w, http.StatusUnprocessableEntity, "Invalid request payload")
+		return
+	}
 
-    // Получаем выражение по его идентификатору из хранилища
-    expression, err := storage.GetExpressionByID(id)
-    if err != nil {
-        if errors.Is(err, storage.ErrExpressionNotFound) {
-            http.Error(w, "Expression not found", http.StatusNotFound)
-        } else {
-            http.Error(w, "Internal server error", http.StatusInternalServerError)
-        }
-        return
-    }
+	log.Println("Received expression:", req.Expression)
 
-    // Формируем ответ
-    response := map[string]interface{}{"expression": expression}
-    json.NewEncoder(w).Encode(response)
+	tasks, err := taskcreator.CreateTasksFromExpression(req.Expression)
+
+	if err != nil {
+		utils.RespondWithError(w, http.StatusUnprocessableEntity, "Invalid expression")
+		log.Println("Invalid expression")
+		return
+	}
+	log.Println("Created tasks:", tasks)
+
+	expression := models.Expression{
+		Expression: req.Expression,
+		Status:     "pending",
+	}
+
+	expressionID := h.Storage.AddExpression(expression)
+
+	for _, task := range tasks {
+		log.Println("Created taskID:", task.ID)
+		log.Println("Created taskArg1:", task.Arg1)
+		log.Println("Created taskArg2:", task.Arg2)
+		log.Println("Created taskOperation:", task.Operation)
+		log.Println("Created taskstatus:", task.Status)
+		h.Storage.AddTask(task)
+
+	}
+
+	log.Println("Waiting to end multiply")
+	time.Sleep(time.Second * 15)
+
+	//	req2 := strings.ReplaceAll(req.Expression, " ", "")
+	req2 := strings.TrimSpace(req.Expression)
+	log.Println("Tasks :", tasks)
+	for _, task := range tasks {
+		log.Println("Task :", task)
+		log.Println("Searching for taskID: ", task.ID)
+		res, err := h.Storage.GetTaskResult(task.ID)
+		log.Println("task id :", task.ID)
+		log.Println("res :", res)
+		if err != nil {
+			panic(err)
+		}
+		i := strings.Index(req2, strconv.Itoa(task.Arg1)+" "+task.Operation+" "+strconv.Itoa(task.Arg2))
+		req2 = req2[:i] + " " + strconv.FormatFloat(res.Result, 'f', -1, 32) + " " + req2[i+len(strconv.Itoa(task.Arg1)+" "+task.Operation+" "+strconv.Itoa(task.Arg2)):]
+	}
+	log.Println("req2 is:", req2)
+	tasks, err = taskcreator.CreateTasksFromExpression(req2)
+
+	if err != nil {
+		utils.RespondWithError(w, http.StatusUnprocessableEntity, "Invalid expression")
+		return
+	}
+	log.Println("Created tasks:", tasks)
+
+	expression = models.Expression{
+		Expression: req.Expression,
+		Status:     "pending",
+	}
+
+	expressionID = h.Storage.AddExpression(expression)
+
+	for _, task := range tasks {
+		log.Println("Created taskID:", task.ID)
+		log.Println("Created taskArg1:", task.Arg1)
+		log.Println("Created taskArg2:", task.Arg2)
+		log.Println("Created taskOperation:", task.Operation)
+		log.Println("Created taskstatus:", task.Status)
+		h.Storage.AddTask(task)
+
+	}
+
+	response := map[string]int{"id": expressionID}
+	utils.RespondWithJSON(w, http.StatusCreated, response)
 }
